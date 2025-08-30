@@ -21,9 +21,11 @@ NOTES:
 
 import json
 import os
+from pathlib import Path
 import uuid
 from datetime import datetime, timedelta
 from typing import List, Optional
+from fastapi.staticfiles import StaticFiles
 import mongoengine as me
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, status, Body
 from fastapi.responses import FileResponse
@@ -37,6 +39,7 @@ from models.folderModel import Folder, FolderCreate
 from models.fileDocModel import FileDoc
 from models.audiLogModel import AuditLog
 import uvicorn
+from routes.folders_routes import router
 # ---------------------------
 # Configuration
 # ---------------------------
@@ -68,7 +71,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
+app.mount("/files", StaticFiles(directory=UPLOAD_DIR), name="files")
 
+
+app.include_router(router, prefix="/folder", tags=["Folders"])
 # ---------------------------
 # Helpers
 # ---------------------------
@@ -138,6 +146,9 @@ def local_get_file_path(key: str) -> str:
 # ---------------------------
 # Routes: Auth & Users
 # ---------------------------
+
+
+
 @app.post('/auth/register', response_model=UserOut)
 def register_user(payload: UserCreate):
     if get_user_by_username(payload.username):
@@ -203,58 +214,58 @@ def deactivate_user(username: str, admin: User = Depends(admin_required)):
 # ---------------------------
 # Folder endpoints
 # ---------------------------
-@app.post('/folders/create')
-def create_folder(payload: FolderCreate, user: User = Depends(get_current_user_from_token)):
-    parent = None
-    if payload.parent_id:
-        parent = Folder.objects(id=payload.parent_id).first()
-        if not parent:
-            raise HTTPException(404, "Parent folder not found")
-        if not _has_write_permission(user, parent):
-            raise HTTPException(403, "No write permission on parent folder")
-    folder = Folder(name=payload.name, owner=user, parent=parent, visibility=payload.visibility)
-    if payload.password:
-        folder.password_hash = hash_password(payload.password)
-    if payload.allowed_usernames:
-        users = [get_user_by_username(uname) for uname in payload.allowed_usernames if get_user_by_username(uname)]
-        folder.allowed_users = users
-    if payload.expiry_days:
-        folder.expiry_date = datetime.utcnow() + timedelta(days=payload.expiry_days)
-    folder.save()
-    audit(user, "create_folder", folder.name)
-    return {"id": str(folder.id), "name": folder.name, "parent_id": str(parent.id) if parent else None}
+# @app.post('/folders/create')
+# def create_folder(payload: FolderCreate, user: User = Depends(get_current_user_from_token)):
+#     parent = None
+#     if payload.parent_id:
+#         parent = Folder.objects(id=payload.parent_id).first()
+#         if not parent:
+#             raise HTTPException(404, "Parent folder not found")
+#         if not _has_write_permission(user, parent):
+#             raise HTTPException(403, "No write permission on parent folder")
+#     folder = Folder(name=payload.name, owner=user, parent=parent, visibility=payload.visibility)
+#     if payload.password:
+#         folder.password_hash = hash_password(payload.password)
+#     if payload.allowed_usernames:
+#         users = [get_user_by_username(uname) for uname in payload.allowed_usernames if get_user_by_username(uname)]
+#         folder.allowed_users = users
+#     if payload.expiry_days:
+#         folder.expiry_date = datetime.utcnow() + timedelta(days=payload.expiry_days)
+#     folder.save()
+#     audit(user, "create_folder", folder.name)
+#     return {"id": str(folder.id), "name": folder.name, "parent_id": str(parent.id) if parent else None}
 
-@app.get('/folders',)
-def list_folders(user: User = Depends(get_current_user_from_token)):
-    folders = Folder.objects(owner=user)
-    return {
-        "folders": json.loads(folders.to_json()),
-    }
+# @app.get('/folders',)
+# def list_folders(user: User = Depends(get_current_user_from_token)):
+#     folders = Folder.objects(owner=user)
+#     return {
+#         "folders": json.loads(folders.to_json()),
+#     }
 
-@app.get('/folders/{folder_id}')
-def get_folder(folder_id: str, user: User = Depends(get_current_user_from_token), password: Optional[str] = None):
-    folder = Folder.objects(id=folder_id).first()
-    if not folder:
-        raise HTTPException(404, "Folder not found")
-    if not _has_read_permission(user, folder):
-        if folder.password_hash:
-            if not password or not verify_password(password, folder.password_hash):
-                raise HTTPException(403, "Password required or wrong")
-        else:
-            raise HTTPException(403, "No access to folder")
-    if folder.expiry_date and folder.expiry_date < datetime.utcnow():
-        raise HTTPException(403, "Folder expired")
-    audit(user, "view_folder", folder.name)
-    return {
-        "id": str(folder.id),
-        "name": folder.name,
-        "owner": folder.owner.username,
-        "parent_id": str(folder.parent.id) if folder.parent else None,
-        "visibility": folder.visibility,
-        "has_password": bool(folder.password_hash),
-        "expiry_date": folder.expiry_date,
-        "created_at": folder.created_at
-    }
+# @app.get('/folders/{folder_id}')
+# def get_folder(folder_id: str, user: User = Depends(get_current_user_from_token), password: Optional[str] = None):
+#     folder = Folder.objects(id=folder_id).first()
+#     if not folder:
+#         raise HTTPException(404, "Folder not found")
+#     if not _has_read_permission(user, folder):
+#         if folder.password_hash:
+#             if not password or not verify_password(password, folder.password_hash):
+#                 raise HTTPException(403, "Password required or wrong")
+#         else:
+#             raise HTTPException(403, "No access to folder")
+#     if folder.expiry_date and folder.expiry_date < datetime.utcnow():
+#         raise HTTPException(403, "Folder expired")
+#     audit(user, "view_folder", folder.name)
+#     return {
+#         "id": str(folder.id),
+#         "name": folder.name,
+#         "owner": folder.owner.username,
+#         "parent_id": str(folder.parent.id) if folder.parent else None,
+#         "visibility": folder.visibility,
+#         "has_password": bool(folder.password_hash),
+#         "expiry_date": folder.expiry_date,
+#         "created_at": folder.created_at
+#     }
 
 # ---------------------------
 # Files: upload & download (local)
