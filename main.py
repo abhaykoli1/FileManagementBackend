@@ -40,6 +40,7 @@ from models.fileDocModel import FileDoc
 from models.audiLogModel import AuditLog
 import uvicorn
 from routes.folders_routes import router
+from utils.data_incrypto import encrypt_response
 # ---------------------------
 # Configuration
 # ---------------------------
@@ -166,19 +167,25 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
         raise HTTPException(status_code=401, detail="Incorrect username or password")
     access_token = create_access_token(data={"sub": user.username}, expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRY_MINUTES()))
     audit(user, "login", user.username)
-    return {"access_token": access_token, "token_type": "bearer"}
+    response = {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "data": encrypt_response(response)
+    }
 
 
 @app.get("/auth/me", )
 def read_users_me(current_user = Depends(get_current_user_from_token)):
    
-    return {
+    response = {
         "message":"user deatils",
         "data": json.loads(current_user.to_json())
     }
+    return {
+        "data": encrypt_response(response)
+    }
 
 
-@app.get('/users', response_model=List[UserOut])
+@app.get('/users', )
 def list_users(admin: User = Depends(admin_required)):
     users = User.objects()
     return [UserOut(id=str(u.id), username=u.username, role=u.role, is_active=u.is_active, created_at=u.created_at) for u in users]
@@ -199,7 +206,11 @@ def activate_user(username: str, admin: User = Depends(admin_required)):
     user.is_active = True
     user.save()
     audit(admin, "activate_user", username)
-    return {"ok": True}
+
+    response = {"ok": True}
+    return {
+        "data": encrypt_response(response)
+    }
 
 @app.post('/users/{username}/deactivate')
 def deactivate_user(username: str, admin: User = Depends(admin_required)):
@@ -209,7 +220,10 @@ def deactivate_user(username: str, admin: User = Depends(admin_required)):
     user.is_active = False
     user.save()
     audit(admin, "deactivate_user", username)
-    return {"ok": True}
+    response = {"ok": True}
+    return {
+        "data": encrypt_response(response)
+    }
 
 # ---------------------------
 # Folder endpoints
