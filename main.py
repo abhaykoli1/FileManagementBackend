@@ -150,14 +150,18 @@ def local_get_file_path(key: str) -> str:
 
 
 
-@app.post('/auth/register', response_model=UserOut)
+@app.post('/auth/register')
 def register_user(payload: UserCreate):
     if get_user_by_username(payload.username):
         raise HTTPException(status_code=400, detail="Username exists")
     hashed = hash_password(payload.password)
     user = User(username=payload.username, password_hash=hashed, role=payload.role).save()
     # audit(admin, "create_user", user.username)
-    return UserOut(id=str(user.id), username=user.username, role=user.role, is_active=user.is_active, created_at=user.created_at)
+    return {
+        "data": encrypt_response({
+            json.loads(user.to_json())
+        })
+    }
 
 
 @app.post('/auth/login', response_model=Token)
@@ -168,9 +172,7 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     access_token = create_access_token(data={"sub": user.username}, expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRY_MINUTES()))
     audit(user, "login", user.username)
     response = {"access_token": access_token, "token_type": "bearer"}
-    return {
-        "data": encrypt_response(response)
-    }
+    return response
 
 
 @app.get("/auth/me", )
